@@ -1,0 +1,61 @@
+{
+  "name": "dsh-relay-compare",
+  "version": "0.1.6",
+  "description": "DeepSeek Harness 渠道费用对比插件：实时对比第三方中转站公开销售价与 DeepSeek 官方峰谷价，在输入框下方显示本会话、今日与累计省了多少钱。Relay cost compare plugin for DeepSeek Harness: real-time relay-vs-official price comparison with per-session, daily and total savings under the composer.",
+  "type": "module",
+  "license": "MIT",
+  "author": "dsh爱好者",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "cost",
+    "billing",
+    "usage",
+    "pricing",
+    "relay",
+    "savings"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zdalice/dsh-relay-compare.git"
+  },
+  "homepage": "https://github.com/zdalice/dsh-relay-compare#readme",
+  "bugs": {
+    "url": "https://github.com/zdalice/dsh-relay-compare/issues"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.0-rc.1 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0-0"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

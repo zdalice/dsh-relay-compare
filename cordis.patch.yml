@@ -1,0 +1,4 @@
+# dsh-relay-compare bundle patch: one host row over the current profile.
+- insert:
+    - id: relay-compare
+      name: dsh-relay-compare

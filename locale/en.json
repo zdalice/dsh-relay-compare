@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Relay cost compare",
+    "description": "Compares DeepSeek official peak/off-peak prices with a third-party relay's published prices in real time, showing what the relay saved for this session, today and in total under the composer, with per-model official and relay unit prices on demand.",
+    "detail": "docs/DETAIL.md"
+  }
+}
