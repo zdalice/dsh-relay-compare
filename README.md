@@ -1,8 +1,10 @@
 # dsh-relay-compare · 渠道费用对比
 
-DeepSeek Harness 插件：把每一次模型调用的 token 用量**同时**按 DeepSeek 官方峰谷价和第三方中转站的公开销售价算一遍，在输入框下方实时显示「用中转站省了多少钱」。
+> 由 **创想通算团队** 维护 · 默认对接 [创想通算](https://www.cxts.top)（可在面板里改成任意兼容的中转站）
 
-同一个模型，官方按 token 卖，中转站也按 token 卖，只是单价不同。这个插件把两边的账都摆出来——包括一个容易被忽略的事实：**中转站的折扣是相对官方高峰价给的，而官方空闲价本身就是高峰价的五折**，所以在晚上、周末这类空闲时段，中转站并不一定更便宜。
+DeepSeek Harness 插件：把每一次模型调用的 token 用量**同时**按 DeepSeek 官方峰谷价和中转站的公开销售价算一遍，在输入框下方实时显示「用中转站省了多少钱」。
+
+同一个模型，官方按 token 卖，中转站也按 token 卖，只是单价不同。这个插件把两边的账都摆出来——包括一个容易被忽略的事实：**中转站的折扣是相对官方高峰价给的，而官方空闲价本身就是高峰价的五折**，所以在晚上、周末这类空闲时段，中转站并不一定更便宜。这个数字我们不做美化，是贵就是贵。
 
 ## 功能
 
@@ -17,7 +19,13 @@ DeepSeek Harness 插件：把每一次模型调用的 token 用量**同时**按 
 从 GitHub（源码安装）：
 
 ```sh
-dsh plugin --profile desktop add github:GH_OWNER/dsh-relay-compare
+dsh plugin --profile desktop add github:zdalice/dsh-relay-compare
+```
+
+Web 版 profile 把 `desktop` 换成 `web`。想每次都装到完全相同的版本，可以钉住提交：
+
+```sh
+dsh plugin --profile desktop add github:zdalice/dsh-relay-compare#ab8f9ff
 ```
 
 或从 npm（预构建，免构建授权）：
@@ -27,6 +35,24 @@ dsh plugin --profile desktop add dsh-relay-compare
 ```
 
 装完重启 harness。入口在**输入框下方**（和"对话费用"那条挨着），也可在 **设置 → 插件** 里看到 `dsh-relay-compare` 这一行。
+
+## 交流与反馈
+
+有问题、想提建议、想反馈 bug，或者想聊聊中转站用量与省钱姿势，都欢迎找我们：
+
+![创想通算团队 · 企业微信客服](assets/wecom-support.png)
+
+- **企业微信客服**：扫码添加（若图片无法显示，请直接提 Issue，我们会尽快补上）
+- **问题反馈**：[提交 Issue](https://github.com/zdalice/dsh-relay-compare/issues) —— 建议附上 DSH 版本、插件版本、报错信息或截图，定位更快
+- **算力咨询**：想了解创想通算的接入方式、模型目录与计费，也走上面这两个入口
+
+### 开通与充值
+
+- **还没有账号？** 通过这个链接注册（含作者推广码），注册后即可直接使用插件默认对接的创想通算：
+  https://www.cxts.top/register?aff=wy25
+- **已经有账号？** 直接登录 [创想通算](https://www.cxts.top) 控制台充值即可。
+
+> **利益披露**：上面第一条链接带有作者的推广码。通过它注册，作者会从平台获得一笔推广奖励——**这不改变你的价格、额度或计费**，中转站价目对所有用户一致。我们把它写在这里而不是藏起来；如果你不想让作者拿到这笔奖励，直接访问 [www.cxts.top](https://www.cxts.top) 注册，效果完全一样。
 
 ## 数据来源
 
@@ -45,6 +71,8 @@ dsh plugin --profile desktop add dsh-relay-compare
 
 展开面板底部的「设置」区可以改：中转站地址、渠道 ID（DSH 里走中转站的 provider id）、价格来源（政策价 / 表价）、自动同步间隔、节假日日期。设置保存在 `$DSH_HOME/storages/relay-compare/state.json`（未设置 `DSH_HOME` 时为 `~/.dsh`）。
 
+换成其他中转站时，只要它提供同名的公开价目接口（`/api/prices` 与 `/api/platform_price/public`）即可直接使用；接口不同则价目拉取失败（chip 上会显示 ⚠），此时面板里的设置与刷新依然可用。
+
 ## 已知限制
 
 - 官方峰谷只影响 **API token 单价**；订阅套餐、包月、免费额度不适用这套价格。
@@ -53,6 +81,13 @@ dsh plugin --profile desktop add dsh-relay-compare
 - 中转站可能对不同用户组给不同折扣；接口口径与实际扣费不一致时，以你的账单为准——这时切换「价格来源」即可。
 - 模型名与中转站目录不一致时需要映射；未映射的模型只统计官方价。
 - 「本会话」从宿主进程启动开始累计，并对最近 300 个会话保留历史；不做会话日志重放，重装或长期离线期间的费用不会补算。
+
+## 关于本项目
+
+- **利益相关声明**：本插件由**创想通算团队**开发维护，默认对接我们自己的中转站（[www.cxts.top](https://www.cxts.top)）。价格对比读取的是公开价目接口，**算法不为自家渠道做任何美化**：高峰时段该省多少就显示多少，空闲时段如果是「多付」，也会如实显示成红色的「多付」。
+- **隐私**：插件**不采集、不上传任何用户数据**，没有遥测、没有埋点。它只做两件事：从宿主读取本次调用已经产生的 token 用量（用于算钱），以及按你配置的地址请求中转站的**公开价目接口**。统计数据只写在本机 `$DSH_HOME/storages/relay-compare/state.json`。
+- **不碰你的密钥**：插件不读取、不存储任何 API Key。
+- **收录不等于背书**：插件是第三方代码，建议安装前自行审阅源码（本仓库即完整源码，无构建步骤）。
 
 ## 目录结构
 
@@ -63,6 +98,7 @@ cordis.patch.yml   bundle patch：插入 relay-compare 这一行
 locale/            插件管理器显示用文案（zh / en）
 docs/DETAIL.md     详情文档：口径、来源、限制
 icon.svg           插件图标
+assets/            客服二维码等图片
 ```
 
 ## 开发
