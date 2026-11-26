@@ -18,7 +18,7 @@ export const name = 'relay-compare'
 export const inject = ['llm', 'webServer']
 
 const ROUTE = '/dsh-relay-compare'
-const BUILD = '0.1.8'
+const BUILD = '0.1.9'
 const STORAGE_DIR = 'storages/relay-compare'
 const MAX_SESSIONS = 300
 const REFRESH_FALLBACK_MINUTES = 30

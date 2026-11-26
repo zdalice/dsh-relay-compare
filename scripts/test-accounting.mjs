@@ -4,7 +4,7 @@
  *
  * 全程只写一个隔离的临时 DSH_HOME,不碰真实账本,不联网。
  *
- * 重点核对「调用当时档位」口径(0.1.8 新增):
+ * 重点核对「调用当时档位」口径(0.1.9 新增):
  *   officialAt = Σ(每次调用真实档位的官方价)
  *   saveAt     = officialAt - relayAt
  *   且必然夹在两个假设场景之间:saveOff <= saveAt <= savePeak
@@ -126,7 +126,7 @@ console.log('两个假设场景(全落高峰 / 全落空闲):')
 check('officialPeak', s.officialPeak, want.officialPeak)
 check('officialOff', s.officialOff, want.officialOff)
 check('relay', s.relay, want.relay)
-console.log('\n调用当时档位(0.1.8 新口径):')
+console.log('\n调用当时档位(0.1.9 新口径):')
 check('officialAt', s.officialAt, want.officialAt)
 check('relayAt', s.relayAt, want.relay)
 check('saveAt', s.saveAt, want.officialAt - want.relay)

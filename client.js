@@ -29,6 +29,10 @@ window.__ModuleLoader__.load({
         colRelay: '中转站',
         colDiffPeak: '差额(vs 高峰)',
         colDiffOff: '差额(vs 空闲)',
+        tipPeak: '假设这堆 token 全部落在官方高峰时段，官方会收多少（假设场景，不是实际花费）',
+        tipOff: '假设这堆 token 全部落在官方空闲时段，官方会收多少（假设场景，不是实际花费）',
+        tipRelay: '这堆 token 在中转站的实际花费。中转站只有一档价、不分峰谷，所以只占一列',
+        tipDiff: '本列官方价 − 中转站价。两列差额是两个假设场景的上限与下限，不能相加',
         callsUnit: '次调用',
         tokensIn: '输入',
         tokensCache: '缓存读',
@@ -62,7 +66,7 @@ window.__ModuleLoader__.load({
         crash: '插件渲染出错,已收起明细',
         unpriced: '无对照价,未计入差额',
         actualLabel: '按调用当时的官方档位',
-        actualNote: '（另有 {n} 次调用在本次升级前记账,当时的峰谷分布无法还原,未计入）',
+        actualNote: '（本次口径覆盖 {c} 次调用；另有 {n} 次在本次升级前记账，峰谷分布无法还原，未计入）',
         peakNow: '官方高峰价生效中',
         offPeakNow: '官方空闲价生效中',
         nextSwitch: '后切换',
@@ -85,6 +89,10 @@ window.__ModuleLoader__.load({
         colRelay: 'Relay',
         colDiffPeak: 'Diff vs peak',
         colDiffOff: 'Diff vs off-peak',
+        tipPeak: 'What official would charge if all these tokens fell in peak hours (a scenario, not the actual bill)',
+        tipOff: 'What official would charge if all these tokens fell in off-peak hours (a scenario, not the actual bill)',
+        tipRelay: 'What the relay actually charged. The relay has a single flat tier, so it gets one column',
+        tipDiff: 'This official column minus the relay column. The two diff columns are the upper and lower bounds of two scenarios and must not be added',
         callsUnit: 'calls',
         tokensIn: 'in',
         tokensCache: 'cache read',
@@ -118,7 +126,7 @@ window.__ModuleLoader__.load({
         crash: 'Render error; detail panel hidden',
         unpriced: 'no reference price, excluded from the diff',
         actualLabel: 'At the call-time official tier',
-        actualNote: '({n} earlier calls predate this upgrade; their peak/off-peak split is unrecoverable and left out)',
+        actualNote: '({c} calls covered; {n} earlier calls predate this upgrade and their peak/off-peak split is unrecoverable)',
         peakNow: 'Official peak pricing in effect',
         offPeakNow: 'Official off-peak pricing in effect',
         nextSwitch: 'switches in',
@@ -151,11 +159,16 @@ window.__ModuleLoader__.load({
       .drc-scroll table{min-width:440px}
     `
 
+    /**
+     * 金额统一显示到 4 位小数、去掉末尾多余的 0。
+     * 不能按「值大就用 2 位、值小就用 4 位」挑精度:那样同一行里高峰价会被舍成 10.85、
+     * 差额却保留 0.0318,用户拿显示的数相减就会差几分钱,看着像账算错了。
+     * 统一精度后,表内任意两格相减都能对上(最多差 0.0001 的末位舍入)。
+     */
     const money = (value) => {
       const n = Number(value ?? 0)
-      const abs = Math.abs(n)
-      const digits = abs > 0 && abs < 1 ? 4 : 2
-      return `¥${n.toFixed(digits)}`
+      if (!Number.isFinite(n)) return '¥0'
+      return `¥${n.toFixed(4).replace(/\.?0+$/, '') || '0'}`
     }
 
     const compact = (value) => {
@@ -311,12 +324,12 @@ window.__ModuleLoader__.load({
      * 差额即真实省下的钱。
      * 老条目没记过档位、也还原不出来,所以只统计升级之后的调用,并如实说明漏了多少次。
      */
-    function ActualLine({ rows, uncovered, t }) {
+    function ActualLine({ rows, covered, uncovered, t }) {
       if (!rows.some(({ entry }) => (entry?.atCalls ?? 0) > 0)) return null
       return h('div', { style: { ...styles.faint, lineHeight: 1.7 } },
         h('span', null, `${t.actualLabel}:`),
         ...rows.map(({ label, entry }) => {
-          const covered = entry?.atCalls ?? 0
+          const hits = entry?.atCalls ?? 0
           const saved = entry?.saveAt ?? 0
           const officialAt = entry?.officialAt ?? 0
           const relayAt = entry?.relayAt ?? 0
@@ -325,16 +338,17 @@ window.__ModuleLoader__.load({
           return h('span', {
             key: label,
             style: { marginLeft: '10px', whiteSpace: 'nowrap' },
-            title: covered > 0 ? `${t.official} ${money(officialAt)} · ${t.relay} ${money(relayAt)}` : '',
+            title: hits > 0 ? `${t.official} ${money(officialAt)} − ${t.relay} ${money(relayAt)} = ${money(saved)}｜${hits} ${t.callsUnit}` : '',
           },
             h('span', { style: styles.faint }, `${label} `),
-            covered > 0
+            hits > 0
               ? h('span', { style: d.style }, `${d.word} ${d.text}${pct ? ` (${pct})` : ''}`)
               : h('span', { style: styles.faint }, '—'),
           )
         }),
         uncovered > 0
-          ? h('span', { style: { display: 'block', opacity: 0.85 } }, t.actualNote.replace('{n}', String(uncovered)))
+          ? h('span', { style: { display: 'block', opacity: 0.85 } },
+              t.actualNote.replace('{c}', String(covered)).replace('{n}', String(uncovered)))
           : null,
       )
     }
@@ -506,6 +520,7 @@ window.__ModuleLoader__.load({
       ]
       // 提示只按最宽的「累计」口径算,避免把今天/本会话重复计进去。
       const uncovered = Math.max(0, (totalEntry?.calls ?? 0) - (totalEntry?.atCalls ?? 0))
+      const covered = totalEntry?.atCalls ?? 0
 
       const panel = h('div', { style: styles.backdrop, onClick: () => setOpen(false) },
         h('div', {
@@ -531,18 +546,18 @@ window.__ModuleLoader__.load({
             h('table', { style: styles.table },
               h('thead', null, h('tr', null,
                 h('th', { style: styles.thFirst }, ''),
-                h('th', { style: styles.th }, t.colOfficialPeak),
-                h('th', { style: styles.th }, t.colOfficialOff),
-                h('th', { style: styles.th }, t.colRelay),
-                h('th', { style: styles.th }, t.colDiffPeak),
-                h('th', { style: styles.th }, t.colDiffOff),
+                h('th', { style: styles.th, title: t.tipPeak }, t.colOfficialPeak),
+                h('th', { style: styles.th, title: t.tipOff }, t.colOfficialOff),
+                h('th', { style: styles.th, title: t.tipRelay }, t.colRelay),
+                h('th', { style: styles.th, title: t.tipDiff }, t.colDiffPeak),
+                h('th', { style: styles.th, title: t.tipDiff }, t.colDiffOff),
               )),
               h('tbody', null,
                 ...costRows.map(({ label, entry: row }) => h(EntryRow, { key: label, label, entry: row, t })),
               ),
             ),
           ),
-          h(ActualLine, { rows: costRows, uncovered, t }),
+          h(ActualLine, { rows: costRows, covered, uncovered, t }),
           entry
             ? h('div', { style: styles.faint },
                 `${entry.calls ?? 0} ${t.callsUnit} · ${t.tokensIn} ${compact(entry.input)} · ${t.tokensCache} ${compact(entry.cacheRead)} · ${t.tokensOut} ${compact((entry.output ?? 0) + (entry.reasoning ?? 0))}`)
