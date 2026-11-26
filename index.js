@@ -18,7 +18,7 @@ export const name = 'relay-compare'
 export const inject = ['llm', 'webServer']
 
 const ROUTE = '/dsh-relay-compare'
-const BUILD = '0.1.9'
+const BUILD = '0.2.0'
 const STORAGE_DIR = 'storages/relay-compare'
 const MAX_SESSIONS = 300
 const REFRESH_FALLBACK_MINUTES = 30
@@ -90,6 +90,8 @@ function emptyCosts() {
      * 「调用当时档位」口径:同样这堆 token,官方按每次调用真实落在的那一档计价。
      * 上面 officialPeak/officialOff 是两个假设场景(全部落高峰 / 全部落空闲),
      * 这一组才是「如果当时走官方,实际会花多少」,差额 saveAt 也就是真实省下的钱。
+     * 再按真实档位拆成高峰段/空闲段两半,这样 高峰段 + 空闲段 = 合计,
+     * 合计 − 中转站 = 真实差额,面板上横竖都加得起来、不用解释。
      * 旧状态文件的峰谷分布无法还原,所以这组字段不迁移、只统计升级之后的调用,
      * 由 atCalls 记录覆盖了多少次,界面据此说明口径。
      */
@@ -97,6 +99,12 @@ function emptyCosts() {
     relayAt: 0,
     saveAt: 0,
     atCalls: 0,
+    atPeakOfficial: 0,
+    atPeakRelay: 0,
+    atPeakCalls: 0,
+    atOffOfficial: 0,
+    atOffRelay: 0,
+    atOffCalls: 0,
   }
 }
 
@@ -123,6 +131,12 @@ function addCosts(target, source) {
   target.relayAt = (target.relayAt ?? 0) + (source.relayAt ?? 0)
   target.saveAt = (target.saveAt ?? 0) + (source.saveAt ?? 0)
   target.atCalls = (target.atCalls ?? 0) + (source.atCalls ?? 0)
+  target.atPeakOfficial = (target.atPeakOfficial ?? 0) + (source.atPeakOfficial ?? 0)
+  target.atPeakRelay = (target.atPeakRelay ?? 0) + (source.atPeakRelay ?? 0)
+  target.atPeakCalls = (target.atPeakCalls ?? 0) + (source.atPeakCalls ?? 0)
+  target.atOffOfficial = (target.atOffOfficial ?? 0) + (source.atOffOfficial ?? 0)
+  target.atOffRelay = (target.atOffRelay ?? 0) + (source.atOffRelay ?? 0)
+  target.atOffCalls = (target.atOffCalls ?? 0) + (source.atOffCalls ?? 0)
 }
 
 function mergeEntry(target, source) {
@@ -262,6 +276,24 @@ function migrateState(state) {
       }
     }
     migrations.push('call-time-tier-v1')
+  }
+
+  // at-tier-split-v1(0.2.0):把「调用当时档位」再拆成高峰段/空闲段,同样只补 0。
+  if (!migrations.includes('at-tier-split-v1')) {
+    for (const bucket of [state.days, state.sessions]) {
+      for (const group of Object.values(bucket)) {
+        for (const entry of [group.total, ...Object.values(group.byKey ?? {})]) {
+          if (!entry || typeof entry !== 'object') continue
+          entry.atPeakOfficial ??= 0
+          entry.atPeakRelay ??= 0
+          entry.atPeakCalls ??= 0
+          entry.atOffOfficial ??= 0
+          entry.atOffRelay ??= 0
+          entry.atOffCalls ??= 0
+        }
+      }
+    }
+    migrations.push('at-tier-split-v1')
   }
 
   state.migrations = migrations
@@ -418,6 +450,13 @@ export function apply(ctx) {
       relayAt: atComparable ? relayCost : 0,
       saveAt: atComparable ? atOfficial - relayCost : 0,
       atCalls: atComparable ? 1 : 0,
+      // 按真实档位拆两半:高峰段 + 空闲段 = 上述合计。
+      atPeakOfficial: atComparable && peak ? atOfficial : 0,
+      atPeakRelay: atComparable && peak ? relayCost : 0,
+      atPeakCalls: atComparable && peak ? 1 : 0,
+      atOffOfficial: atComparable && !peak ? atOfficial : 0,
+      atOffRelay: atComparable && !peak ? relayCost : 0,
+      atOffCalls: atComparable && !peak ? 1 : 0,
     }
     const key = `${provider}:${model}`
     const date = localDate(atMs)

@@ -4,7 +4,7 @@
  *
  * 全程只写一个隔离的临时 DSH_HOME,不碰真实账本,不联网。
  *
- * 重点核对「调用当时档位」口径(0.1.9 新增):
+ * 重点核对「调用当时档位」口径(0.2.0 新增):
  *   officialAt = Σ(每次调用真实档位的官方价)
  *   saveAt     = officialAt - relayAt
  *   且必然夹在两个假设场景之间:saveOff <= saveAt <= savePeak
@@ -119,18 +119,28 @@ const want = {
   officialOff: officialCost('off', uPeak) + officialCost('off', uOff),
   relay: relayCost(uPeak) + relayCost(uOff),
   officialAt: officialCost('peak', uPeak) + officialCost('off', uOff),
+  atPeakOfficial: officialCost('peak', uPeak),
+  atOffOfficial: officialCost('off', uOff),
 }
 
 console.log(`\n会话快照: ${s.calls} 次调用 / atCalls ${s.atCalls}\n`)
-console.log('两个假设场景(全落高峰 / 全落空闲):')
+console.log('两个假设场景(全落高峰 / 全落空闲) —— 仅作参照,不是主表:')
 check('officialPeak', s.officialPeak, want.officialPeak)
 check('officialOff', s.officialOff, want.officialOff)
 check('relay', s.relay, want.relay)
-console.log('\n调用当时档位(0.1.9 新口径):')
+console.log('\n调用当时档位(主表口径):')
 check('officialAt', s.officialAt, want.officialAt)
 check('relayAt', s.relayAt, want.relay)
 check('saveAt', s.saveAt, want.officialAt - want.relay)
 check('atCalls', s.atCalls, 2)
+console.log('\n按真实档位拆分(主表那三列):')
+check('atPeakOfficial(高峰那次)', s.atPeakOfficial, want.atPeakOfficial)
+check('atOffOfficial(空闲那次)', s.atOffOfficial, want.atOffOfficial)
+check('atPeakCalls', s.atPeakCalls, 1)
+check('atOffCalls', s.atOffCalls, 1)
+check('高峰段 + 空闲段 = 官方合计', s.atPeakOfficial + s.atOffOfficial, s.officialAt)
+check('高峰段 + 空闲段 = 中转站合计', s.atPeakRelay + s.atOffRelay, s.relayAt)
+check('合计 − 中转站 = 差额', s.officialAt - s.relayAt, s.saveAt)
 console.log('\n交叉验证:')
 check('savePeak = officialPeak - relay', s.savePeak, want.officialPeak - want.relay)
 check('saveOff  = officialOff - relay', s.saveOff, want.officialOff - want.relay)
@@ -163,7 +173,11 @@ mod.apply(ctx)
 const legacySnap = snapshot()
 const lt = legacySnap.total
 console.log('\n老账本迁移(必须只补 0,不估算):')
-for (const [k, label] of [['officialAt', 'officialAt'], ['relayAt', 'relayAt'], ['saveAt', 'saveAt'], ['atCalls', 'atCalls']]) {
+for (const [k, label] of [
+  ['officialAt', 'officialAt'], ['relayAt', 'relayAt'], ['saveAt', 'saveAt'], ['atCalls', 'atCalls'],
+  ['atPeakOfficial', 'atPeakOfficial'], ['atPeakRelay', 'atPeakRelay'], ['atPeakCalls', 'atPeakCalls'],
+  ['atOffOfficial', 'atOffOfficial'], ['atOffRelay', 'atOffRelay'], ['atOffCalls', 'atOffCalls'],
+]) {
   const ok = lt[k] === 0
   if (!ok) failures.push(`迁移给老条目编了 ${label}=${lt[k]},应为 0`)
   console.log(`  ${ok ? '✅' : '❌'} ${label} = ${lt[k]}(老条目没有档位记录,只能为 0)`)

@@ -25,14 +25,19 @@ window.__ModuleLoader__.load({
         overspend: '多付',
         even: '持平',
         colOfficialPeak: '官方·高峰',
-        colOfficialOff: '官方·空闲',
         colRelay: '中转站',
-        colDiffPeak: '差额(vs 高峰)',
-        colDiffOff: '差额(vs 空闲)',
-        tipPeak: '假设这堆 token 全部落在官方高峰时段，官方会收多少（假设场景，不是实际花费）',
-        tipOff: '假设这堆 token 全部落在官方空闲时段，官方会收多少（假设场景，不是实际花费）',
-        tipRelay: '这堆 token 在中转站的实际花费。中转站只有一档价、不分峰谷，所以只占一列',
-        tipDiff: '本列官方价 − 中转站价。两列差额是两个假设场景的上限与下限，不能相加',
+        colPeakPart: '官方·高峰时段',
+        colOffPart: '官方·空闲时段',
+        colSum: '官方·合计',
+        colDiff: '差额(实际)',
+        tipPeakPart: '落在官方高峰时段的那部分调用，官方要收多少',
+        tipOffPart: '落在官方空闲时段的那部分调用，官方要收多少',
+        tipSum: '高峰时段 + 空闲时段 = 按你实际的用量与实际时段，官方要收的总数',
+        tipRelayAt: '同一批调用在中转站的实际花费',
+        tipDiffAt: '官方·合计 − 中转站。正数是省、负数是多付，一个减法就对得上，没有假设',
+        atNoteFull: '本表按每次调用当时所在的官方档位计算，覆盖全部 {c} 次调用。',
+        atNotePartial: '本表按每次调用当时所在的官方档位计算，覆盖升级后的 {c} 次调用。',
+        legacyRef: '另有 {n} 次在本次升级前记账，当时落在哪一档没有记录、也还原不出来，未计入。全量参照：全部按高峰 {p} · 全部按空闲 {o} · 中转站实际 {r}。',
         callsUnit: '次调用',
         tokensIn: '输入',
         tokensCache: '缓存读',
@@ -65,8 +70,6 @@ window.__ModuleLoader__.load({
         error: '读取失败',
         crash: '插件渲染出错,已收起明细',
         unpriced: '无对照价,未计入差额',
-        actualLabel: '按调用当时的官方档位',
-        actualNote: '（本次口径覆盖 {c} 次调用；另有 {n} 次在本次升级前记账，峰谷分布无法还原，未计入）',
         peakNow: '官方高峰价生效中',
         offPeakNow: '官方空闲价生效中',
         nextSwitch: '后切换',
@@ -85,14 +88,19 @@ window.__ModuleLoader__.load({
         overspend: 'Costs extra',
         even: 'Even',
         colOfficialPeak: 'Official peak',
-        colOfficialOff: 'Official off-peak',
         colRelay: 'Relay',
-        colDiffPeak: 'Diff vs peak',
-        colDiffOff: 'Diff vs off-peak',
-        tipPeak: 'What official would charge if all these tokens fell in peak hours (a scenario, not the actual bill)',
-        tipOff: 'What official would charge if all these tokens fell in off-peak hours (a scenario, not the actual bill)',
-        tipRelay: 'What the relay actually charged. The relay has a single flat tier, so it gets one column',
-        tipDiff: 'This official column minus the relay column. The two diff columns are the upper and lower bounds of two scenarios and must not be added',
+        colPeakPart: 'Official peak hrs',
+        colOffPart: 'Official off-peak hrs',
+        colSum: 'Official total',
+        colDiff: 'Diff (actual)',
+        tipPeakPart: 'What official would have charged for the calls that actually landed in peak hours',
+        tipOffPart: 'What official would have charged for the calls that actually landed in off-peak hours',
+        tipSum: 'Peak part + off-peak part = what official would have charged for your usage at your actual times',
+        tipRelayAt: 'What the relay actually charged for the same calls',
+        tipDiffAt: 'Official total minus relay. Positive saves, negative costs extra — one subtraction, no assumptions',
+        atNoteFull: 'Rows use the official tier each call actually fell in; all {c} calls covered.',
+        atNotePartial: 'Rows use the official tier each call actually fell in; the {c} calls since the upgrade are covered.',
+        legacyRef: '{n} earlier calls predate the upgrade and their tier was never recorded (unrecoverable), so they are excluded. All-call reference: all peak {p} · all off-peak {o} · relay actual {r}.',
         callsUnit: 'calls',
         tokensIn: 'in',
         tokensCache: 'cache read',
@@ -125,8 +133,6 @@ window.__ModuleLoader__.load({
         error: 'Request failed',
         crash: 'Render error; detail panel hidden',
         unpriced: 'no reference price, excluded from the diff',
-        actualLabel: 'At the call-time official tier',
-        actualNote: '({c} calls covered; {n} earlier calls predate this upgrade and their peak/off-peak split is unrecoverable)',
         peakNow: 'Official peak pricing in effect',
         offPeakNow: 'Official off-peak pricing in effect',
         nextSwitch: 'switches in',
@@ -293,62 +299,60 @@ window.__ModuleLoader__.load({
       hr: { border: 'none', borderTop: `1px solid ${TOKEN.border}`, margin: '2px 0' },
     }
 
+    /**
+     * 主表:全部按「每次调用当时真正落在的官方档位」算。
+     * 官方·高峰时段 + 官方·空闲时段 = 官方·合计,合计 − 中转站 = 差额 ——
+     * 横着加、竖着减都对得上,不用跟用户解释"假设"。
+     * 只有升级之后记过档位的调用有值;没有的行显示 —,由表下说明覆盖了多少次。
+     */
     function EntryRow({ label, entry, t }) {
-      const relay = entry?.relay ?? 0
-      const peak = entry?.officialPeak ?? 0
-      const off = entry?.officialOff ?? 0
-      const cell = (saved, official) => {
-        if (!((entry?.pricedCalls ?? 0) > 0)) return h('td', { style: styles.td }, h('span', { style: styles.faint }, '—'))
-        const n = Number(saved ?? 0)
-        if (n === 0) return h('td', { style: styles.td }, h('span', { style: styles.faint }, `${t.even} (0%)`))
-        const d = diffText(n, t)
-        const pct = pctText(official, n)
-        return h('td', { style: styles.td },
-          h('span', { style: d.style }, `${d.word} ${d.text}`),
-          pct ? h('span', { style: { ...styles.faint, marginLeft: '4px' } }, `(${pct})`) : null,
+      const hits = entry?.atCalls ?? 0
+      if (!(hits > 0)) {
+        return h('tr', null,
+          h('td', { style: styles.tdFirst }, label),
+          ...[0, 1, 2, 3, 4].map((i) =>
+            h('td', { key: `e${i}`, style: styles.td }, h('span', { style: styles.faint }, '—'))),
         )
       }
+      const peakPart = entry?.atPeakOfficial ?? 0
+      const offPart = entry?.atOffOfficial ?? 0
+      const officialSum = peakPart + offPart
+      const relay = (entry?.atPeakRelay ?? 0) + (entry?.atOffRelay ?? 0)
+      const saved = officialSum - relay
+      const d = diffText(saved, t)
+      const pct = pctText(officialSum, saved)
       return h('tr', null,
         h('td', { style: styles.tdFirst }, label),
-        h('td', { style: styles.td }, money(peak)),
-        h('td', { style: styles.td }, money(off)),
+        h('td', { style: styles.td }, money(peakPart)),
+        h('td', { style: styles.td }, money(offPart)),
+        h('td', { style: styles.td }, money(officialSum)),
         h('td', { style: styles.td }, money(relay)),
-        cell(entry?.savePeak, peak),
-        cell(entry?.saveOff, off),
+        saved === 0
+          ? h('td', { style: styles.td }, h('span', { style: styles.faint }, `${t.even} (0%)`))
+          : h('td', { style: styles.td },
+              h('span', { style: d.style }, `${d.word} ${d.text}`),
+              pct ? h('span', { style: { ...styles.faint, marginLeft: '4px' } }, `(${pct})`) : null,
+            ),
       )
     }
 
     /**
-     * 表格里那两列差额是两个假设场景(全部落高峰 / 全部落空闲),都不是真实花费。
-     * 这一行给的是第三种、也是唯一非假设的口径:官方按每次调用当时真正所在的档位计价,
-     * 差额即真实省下的钱。
-     * 老条目没记过档位、也还原不出来,所以只统计升级之后的调用,并如实说明漏了多少次。
+     * 表下说明。主表只统计"记过档位"的调用:本次升级之前的条目没有记录当时落在哪一档,
+     * 而且还原不出来(对 DeepSeek 来说空闲价恒为高峰价一半,两个总额是 2:1 的死关系,
+     * 解不出混合比例)。所以如实写明漏了多少次,并把那部分的历史口径作为参照列出。
+     * 不做估算、不假设平均分布 —— 数字小一点没关系,编出来的数字不行。
      */
-    function ActualLine({ rows, covered, uncovered, t }) {
-      if (!rows.some(({ entry }) => (entry?.atCalls ?? 0) > 0)) return null
+    function AtNote({ covered, uncovered, totalEntry, t }) {
+      if (!(covered > 0)) return null
+      const line = (uncovered > 0 ? t.atNotePartial : t.atNoteFull).replace('{c}', String(covered))
       return h('div', { style: { ...styles.faint, lineHeight: 1.7 } },
-        h('span', null, `${t.actualLabel}:`),
-        ...rows.map(({ label, entry }) => {
-          const hits = entry?.atCalls ?? 0
-          const saved = entry?.saveAt ?? 0
-          const officialAt = entry?.officialAt ?? 0
-          const relayAt = entry?.relayAt ?? 0
-          const d = diffText(saved, t)
-          const pct = pctText(officialAt, saved)
-          return h('span', {
-            key: label,
-            style: { marginLeft: '10px', whiteSpace: 'nowrap' },
-            title: hits > 0 ? `${t.official} ${money(officialAt)} − ${t.relay} ${money(relayAt)} = ${money(saved)}｜${hits} ${t.callsUnit}` : '',
-          },
-            h('span', { style: styles.faint }, `${label} `),
-            hits > 0
-              ? h('span', { style: d.style }, `${d.word} ${d.text}${pct ? ` (${pct})` : ''}`)
-              : h('span', { style: styles.faint }, '—'),
-          )
-        }),
+        h('div', null, line),
         uncovered > 0
-          ? h('span', { style: { display: 'block', opacity: 0.85 } },
-              t.actualNote.replace('{c}', String(covered)).replace('{n}', String(uncovered)))
+          ? h('div', null, t.legacyRef
+              .replace('{n}', String(uncovered))
+              .replace('{p}', money(totalEntry?.officialPeak ?? 0))
+              .replace('{o}', money(totalEntry?.officialOff ?? 0))
+              .replace('{r}', money(totalEntry?.relay ?? 0)))
           : null,
       )
     }
@@ -412,15 +416,24 @@ window.__ModuleLoader__.load({
       const stale = !fetchedAt || (Date.now() - fetchedAt > 2 * refreshMinutes * 60000)
       const unpriced = todayEntry?.unpricedCalls ?? entry?.unpricedCalls ?? 0
 
-      // 常驻结论按「官方当前档位」比:高峰时段对高峰价,空闲时段对空闲价。
+      // 常驻结论与主表同口径:官方按每次调用当时真实落在的档位算。
+      // 一次档位都没记过(全新账本、还没调用过)时,退回「官方当前档位」的比法。
       const usePeak = data?.isPeak !== false
-      const officialNow = (usePeak ? entry?.officialPeak : entry?.officialOff)
-        ?? (usePeak ? todayEntry?.officialPeak : todayEntry?.officialOff) ?? 0
-      const relayNow = entry?.relay ?? todayEntry?.relay ?? 0
-      const diffNow = usePeak
-        ? (entry?.savePeak ?? todayEntry?.savePeak ?? 0)
-        : (entry?.saveOff ?? todayEntry?.saveOff ?? 0)
-      const pricedNow = entry?.pricedCalls ?? todayEntry?.pricedCalls ?? 0
+      const atHits = entry?.atCalls ?? todayEntry?.atCalls ?? 0
+      const officialNow = atHits > 0
+        ? (entry?.officialAt ?? todayEntry?.officialAt ?? 0)
+        : ((usePeak ? entry?.officialPeak : entry?.officialOff)
+          ?? (usePeak ? todayEntry?.officialPeak : todayEntry?.officialOff) ?? 0)
+      const relayNow = atHits > 0
+        ? (entry?.relayAt ?? todayEntry?.relayAt ?? 0)
+        : (entry?.relay ?? todayEntry?.relay ?? 0)
+      const diffNow = atHits > 0
+        ? (entry?.saveAt ?? todayEntry?.saveAt ?? 0)
+        : (usePeak ? (entry?.savePeak ?? todayEntry?.savePeak ?? 0) : (entry?.saveOff ?? todayEntry?.saveOff ?? 0))
+      const pricedNow = atHits > 0 ? atHits : (entry?.pricedCalls ?? todayEntry?.pricedCalls ?? 0)
+      // 覆盖不全时把样本量标出来,免得把「升级后这几十次」当成全部用量。
+      const scopedCalls = entry?.calls ?? todayEntry?.calls ?? 0
+      const partial = atHits > 0 && scopedCalls > atHits
       const diff = diffText(diffNow, t)
       const pct = pctText(officialNow, diffNow)
       const nextSwitch = data?.nextSwitchAt ? Math.max(0, Math.round((data.nextSwitchAt - Date.now()) / 60000)) : null
@@ -496,7 +509,13 @@ window.__ModuleLoader__.load({
               `${t.official} ${money(officialNow)} · ${t.relay} ${money(relayNow)} · `,
               diff.word
                 ? h('span', { style: diff.style }, `${diff.word} ${diff.text}${pct ? ` (${pct})` : ''}`)
-                : h('span', { style: styles.faint }, pricedNow > 0 ? `${t.even} (0%)` : t.unpriced))
+                : h('span', { style: styles.faint }, pricedNow > 0 ? `${t.even} (0%)` : t.unpriced),
+              partial
+                ? h('span', {
+                    style: { ...styles.faint, marginLeft: '4px' },
+                    title: t.atNotePartial.replace('{c}', String(atHits)),
+                  }, `${atHits}/${scopedCalls}`)
+                : null)
           : h('span', { style: styles.muted }, t.empty),
         h('span', { style: styles.faint }, open ? '▾' : '▸'),
         (error || stale || unpriced > 0)
@@ -546,18 +565,18 @@ window.__ModuleLoader__.load({
             h('table', { style: styles.table },
               h('thead', null, h('tr', null,
                 h('th', { style: styles.thFirst }, ''),
-                h('th', { style: styles.th, title: t.tipPeak }, t.colOfficialPeak),
-                h('th', { style: styles.th, title: t.tipOff }, t.colOfficialOff),
-                h('th', { style: styles.th, title: t.tipRelay }, t.colRelay),
-                h('th', { style: styles.th, title: t.tipDiff }, t.colDiffPeak),
-                h('th', { style: styles.th, title: t.tipDiff }, t.colDiffOff),
+                h('th', { style: styles.th, title: t.tipPeakPart }, t.colPeakPart),
+                h('th', { style: styles.th, title: t.tipOffPart }, t.colOffPart),
+                h('th', { style: styles.th, title: t.tipSum }, t.colSum),
+                h('th', { style: styles.th, title: t.tipRelayAt }, t.colRelay),
+                h('th', { style: styles.th, title: t.tipDiffAt }, t.colDiff),
               )),
               h('tbody', null,
                 ...costRows.map(({ label, entry: row }) => h(EntryRow, { key: label, label, entry: row, t })),
               ),
             ),
           ),
-          h(ActualLine, { rows: costRows, covered, uncovered, t }),
+          h(AtNote, { covered, uncovered, totalEntry, t }),
           entry
             ? h('div', { style: styles.faint },
                 `${entry.calls ?? 0} ${t.callsUnit} · ${t.tokensIn} ${compact(entry.input)} · ${t.tokensCache} ${compact(entry.cacheRead)} · ${t.tokensOut} ${compact((entry.output ?? 0) + (entry.reasoning ?? 0))}`)
