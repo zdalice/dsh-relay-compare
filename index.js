@@ -18,7 +18,7 @@ export const name = 'relay-compare'
 export const inject = ['llm', 'webServer']
 
 const ROUTE = '/dsh-relay-compare'
-const BUILD = '0.1.6'
+const BUILD = '0.1.8'
 const STORAGE_DIR = 'storages/relay-compare'
 const MAX_SESSIONS = 300
 const REFRESH_FALLBACK_MINUTES = 30
@@ -86,6 +86,17 @@ function emptyCosts() {
     saveOff: 0,
     pricedCalls: 0,
     unpricedCalls: 0,
+    /**
+     * 「调用当时档位」口径:同样这堆 token,官方按每次调用真实落在的那一档计价。
+     * 上面 officialPeak/officialOff 是两个假设场景(全部落高峰 / 全部落空闲),
+     * 这一组才是「如果当时走官方,实际会花多少」,差额 saveAt 也就是真实省下的钱。
+     * 旧状态文件的峰谷分布无法还原,所以这组字段不迁移、只统计升级之后的调用,
+     * 由 atCalls 记录覆盖了多少次,界面据此说明口径。
+     */
+    officialAt: 0,
+    relayAt: 0,
+    saveAt: 0,
+    atCalls: 0,
   }
 }
 
@@ -108,6 +119,10 @@ function addCosts(target, source) {
   target.saveOff = (target.saveOff ?? 0) + (source.saveOff ?? 0)
   target.pricedCalls = (target.pricedCalls ?? 0) + (source.pricedCalls ?? 0)
   target.unpricedCalls = (target.unpricedCalls ?? 0) + (source.unpricedCalls ?? 0)
+  target.officialAt = (target.officialAt ?? 0) + (source.officialAt ?? 0)
+  target.relayAt = (target.relayAt ?? 0) + (source.relayAt ?? 0)
+  target.saveAt = (target.saveAt ?? 0) + (source.saveAt ?? 0)
+  target.atCalls = (target.atCalls ?? 0) + (source.atCalls ?? 0)
 }
 
 function mergeEntry(target, source) {
@@ -228,6 +243,27 @@ function migrateState(state) {
     for (const entry of Object.values(session.byKey ?? {})) if (firstRun) migrateEntry(entry)
   }
   if (firstRun) migrations.push('per-call-diff-v1')
+
+  /**
+   * call-time-tier-v1:officialAt/relayAt/saveAt/atCalls 是按「调用当时档位」逐次累加的。
+   * 旧条目的峰谷分布已经丢了,还原不出来,所以这里只补 0 —— 不估算、不假设,
+   * 让 atCalls 如实说明覆盖了多少次调用,而不是编一个看起来合理的数。
+   */
+  if (!migrations.includes('call-time-tier-v1')) {
+    for (const bucket of [state.days, state.sessions]) {
+      for (const group of Object.values(bucket)) {
+        for (const entry of [group.total, ...Object.values(group.byKey ?? {})]) {
+          if (!entry || typeof entry !== 'object') continue
+          entry.officialAt ??= 0
+          entry.relayAt ??= 0
+          entry.saveAt ??= 0
+          entry.atCalls ??= 0
+        }
+      }
+    }
+    migrations.push('call-time-tier-v1')
+  }
+
   state.migrations = migrations
   return state
 }
@@ -366,6 +402,9 @@ export function apply(ctx) {
     const relayCost = costOf(buckets, prices.relay)
     // 差额只在两侧都有价时累加:否则「省了多少」无从谈起,不能拿 0 当中转站价。
     const comparable = peakCost != null && offCost != null && relayCost != null
+    // 官方按「这次调用真实落在的档位」计。非 DeepSeek 模型官方只有单一档位,peak 与 off 同值,不影响结果。
+    const atOfficial = (peak ? peakCost : offCost) ?? (peak ? offCost : peakCost)
+    const atComparable = atOfficial != null && relayCost != null
     const costs = {
       officialPeak: peakCost ?? offCost ?? 0,
       officialOff: offCost ?? peakCost ?? 0,
@@ -375,6 +414,10 @@ export function apply(ctx) {
       saveOff: comparable ? offCost - relayCost : 0,
       pricedCalls: comparable ? 1 : 0,
       unpricedCalls: comparable ? 0 : 1,
+      officialAt: atOfficial ?? 0,
+      relayAt: atComparable ? relayCost : 0,
+      saveAt: atComparable ? atOfficial - relayCost : 0,
+      atCalls: atComparable ? 1 : 0,
     }
     const key = `${provider}:${model}`
     const date = localDate(atMs)

@@ -61,6 +61,8 @@ window.__ModuleLoader__.load({
         error: '读取失败',
         crash: '插件渲染出错,已收起明细',
         unpriced: '无对照价,未计入差额',
+        actualLabel: '按调用当时的官方档位',
+        actualNote: '（另有 {n} 次调用在本次升级前记账,当时的峰谷分布无法还原,未计入）',
         peakNow: '官方高峰价生效中',
         offPeakNow: '官方空闲价生效中',
         nextSwitch: '后切换',
@@ -115,6 +117,8 @@ window.__ModuleLoader__.load({
         error: 'Request failed',
         crash: 'Render error; detail panel hidden',
         unpriced: 'no reference price, excluded from the diff',
+        actualLabel: 'At the call-time official tier',
+        actualNote: '({n} earlier calls predate this upgrade; their peak/off-peak split is unrecoverable and left out)',
         peakNow: 'Official peak pricing in effect',
         offPeakNow: 'Official off-peak pricing in effect',
         nextSwitch: 'switches in',
@@ -301,6 +305,40 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 表格里那两列差额是两个假设场景(全部落高峰 / 全部落空闲),都不是真实花费。
+     * 这一行给的是第三种、也是唯一非假设的口径:官方按每次调用当时真正所在的档位计价,
+     * 差额即真实省下的钱。
+     * 老条目没记过档位、也还原不出来,所以只统计升级之后的调用,并如实说明漏了多少次。
+     */
+    function ActualLine({ rows, uncovered, t }) {
+      if (!rows.some(({ entry }) => (entry?.atCalls ?? 0) > 0)) return null
+      return h('div', { style: { ...styles.faint, lineHeight: 1.7 } },
+        h('span', null, `${t.actualLabel}:`),
+        ...rows.map(({ label, entry }) => {
+          const covered = entry?.atCalls ?? 0
+          const saved = entry?.saveAt ?? 0
+          const officialAt = entry?.officialAt ?? 0
+          const relayAt = entry?.relayAt ?? 0
+          const d = diffText(saved, t)
+          const pct = pctText(officialAt, saved)
+          return h('span', {
+            key: label,
+            style: { marginLeft: '10px', whiteSpace: 'nowrap' },
+            title: covered > 0 ? `${t.official} ${money(officialAt)} · ${t.relay} ${money(relayAt)}` : '',
+          },
+            h('span', { style: styles.faint }, `${label} `),
+            covered > 0
+              ? h('span', { style: d.style }, `${d.word} ${d.text}${pct ? ` (${pct})` : ''}`)
+              : h('span', { style: styles.faint }, '—'),
+          )
+        }),
+        uncovered > 0
+          ? h('span', { style: { display: 'block', opacity: 0.85 } }, t.actualNote.replace('{n}', String(uncovered)))
+          : null,
+      )
+    }
+
     /** 渲染出错时保留 chip,不让插槽条目整条消失。 */
     class Boundary extends React.Component {
       constructor(props) {
@@ -461,6 +499,14 @@ window.__ModuleLoader__.load({
       const unpricedModels = models.filter((row) => row.source === 'none')
       const discountUnit = locale === 'en' ? 'off' : '折'
 
+      const costRows = [
+        { label: t.session, entry },
+        { label: t.today, entry: todayEntry },
+        { label: `${t.total}${data?.since ? ` · ${data.since}~` : ''}`, entry: totalEntry },
+      ]
+      // 提示只按最宽的「累计」口径算,避免把今天/本会话重复计进去。
+      const uncovered = Math.max(0, (totalEntry?.calls ?? 0) - (totalEntry?.atCalls ?? 0))
+
       const panel = h('div', { style: styles.backdrop, onClick: () => setOpen(false) },
         h('div', {
           role: 'dialog',
@@ -492,12 +538,11 @@ window.__ModuleLoader__.load({
                 h('th', { style: styles.th }, t.colDiffOff),
               )),
               h('tbody', null,
-                h(EntryRow, { label: t.session, entry, t }),
-                h(EntryRow, { label: t.today, entry: todayEntry, t }),
-                h(EntryRow, { label: `${t.total}${data?.since ? ` · ${data.since}~` : ''}`, entry: totalEntry, t }),
+                ...costRows.map(({ label, entry: row }) => h(EntryRow, { key: label, label, entry: row, t })),
               ),
             ),
           ),
+          h(ActualLine, { rows: costRows, uncovered, t }),
           entry
             ? h('div', { style: styles.faint },
                 `${entry.calls ?? 0} ${t.callsUnit} · ${t.tokensIn} ${compact(entry.input)} · ${t.tokensCache} ${compact(entry.cacheRead)} · ${t.tokensOut} ${compact((entry.output ?? 0) + (entry.reasoning ?? 0))}`)
