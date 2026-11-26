@@ -26,7 +26,8 @@ fs.mkdirSync(stateDir, { recursive: true })
 
 // 真实抓下来的 cxts 政策价(deepseek-flash),和内置官方价目对得上账
 const PLATFORM = { 'deepseek-flash': { input: 0.954, cached: 0.0212, output: 3.816, discount: '4.8' } }
-fs.writeFileSync(path.join(stateDir, 'state.json'), JSON.stringify({
+/** 一份干净的账本:没有历史,设置与价目就位。 */
+const seedState = () => ({
   settings: {
     baseUrl: 'https://www.cxts.top',
     relayProviders: ['cxts'],
@@ -37,8 +38,11 @@ fs.writeFileSync(path.join(stateDir, 'state.json'), JSON.stringify({
     manualPrices: {},
   },
   prices: { fetchedAt: Date.now(), error: null, list: {}, platform: PLATFORM, official: {} },
-  days: {}, sessions: {}, migrations: ['per-call-diff-v1', 'call-time-tier-v1'],
-}))
+  days: {},
+  sessions: {},
+  migrations: ['per-call-diff-v1', 'call-time-tier-v1', 'at-tier-split-v1'],
+})
+fs.writeFileSync(path.join(stateDir, 'state.json'), JSON.stringify(seedState()))
 
 // ---- 假的 ctx:只实现插件真正用到的那几个接口 ----------------------------
 const handlers = { stream: null, routes: new Map() }
@@ -152,6 +156,34 @@ console.log(`  ${bracketOk ? '✅' : '❌'} saveOff <= saveAt <= savePeak       
 
 const peakShare = want.officialAt / want.officialPeak
 console.log(`\n参考:官方价的高峰占比 = ${(peakShare * 100).toFixed(1)}%  →  实际省 ${fmt(s.saveAt)} 是「全落高峰」${fmt(s.savePeak)} 的 ${(s.saveAt / s.savePeak * 100).toFixed(1)}%`)
+
+// ---- 场景二:全部调用都落在高峰 ----
+// 此时「官方·高峰时段」必须**恒等于**「全部按高峰」口径。手写 fixture 正是在这里出过错
+// (写了全部落高峰,却把高峰段填成一个更小的数),所以这条直接对着真实代码验。
+{
+  const peakHome = fs.mkdtempSync(path.join(os.tmpdir(), 'drc-allpeak-'))
+  process.env.DSH_HOME = peakHome
+  fs.mkdirSync(path.join(peakHome, 'storages', 'relay-compare'), { recursive: true })
+  fs.writeFileSync(path.join(peakHome, 'storages', 'relay-compare', 'state.json'), JSON.stringify(seedState()))
+  handlers.routes.clear()
+  mod.apply(ctx)
+  await call({ atMs: PEAK_AT, input: 1_000_000, cacheRead: 10_000_000, output: 100_000 })
+  await call({ atMs: PEAK_AT + 60_000, input: 2_000_000, cacheRead: 20_000_000, output: 200_000 })
+  const p = snapshot().session.total
+  console.log('\n场景二:两次调用全部落在高峰(10:00 与 10:01)')
+  check('atOffCalls(空闲段没有调用)', p.atOffCalls, 0)
+  check('atPeakCalls', p.atPeakCalls, 2)
+  check('官方·高峰时段 = 全部按高峰口径', p.atPeakOfficial, p.officialPeak)
+  check('官方·空闲时段', p.atOffOfficial, 0)
+  check('中转站(高峰段) = 中转站总额', p.atPeakRelay, p.relay)
+  check('官方·合计 = 高峰段 + 空闲段', p.officialAt, p.atPeakOfficial + p.atOffOfficial)
+  const ratio = p.saveAt / p.officialAt
+  console.log(`  实际省 ${fmt(p.saveAt)} / 官方 ${fmt(p.officialAt)} = ${(ratio * 100).toFixed(1)}%  (政策价约为官方高峰价的 4.77~5.3 折)`)
+  const ratioOk = ratio > 0.45 && ratio < 0.55
+  if (!ratioOk) failures.push(`全部落高峰时节省比例 ${(ratio * 100).toFixed(1)}% 不在 45%~55% 之间`)
+  console.log(`  ${ratioOk ? '✅' : '❌'} 节省比例落在合理区间(45%~55%)`)
+  fs.rmSync(peakHome, { recursive: true, force: true })
+}
 
 // ---- 老账本迁移:不该凭空造出 officialAt/saveAt --------------------------
 // 旧条目没有档位记录,迁移必须只补 0;若哪天有人改成「估算」,这里会失败。
